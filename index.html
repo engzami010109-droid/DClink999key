@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lấy key miễn phí</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#c9d1d9; --muted:#8b949e; --sky:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#f0b429; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
+         background:var(--bg); color:var(--text); font:15px/1.5 Consolas, "SF Mono", Menlo, monospace; }
+  .card { width:100%; max-width:460px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  h1 { margin:0 0 4px; font-size:20px; color:var(--sky); }
+  .sub { margin:0 0 18px; color:var(--muted); font-size:13px; }
+  button { width:100%; padding:11px; margin-top:10px; border:1px solid var(--line); border-radius:8px; background:#21262d;
+           color:var(--text); font:inherit; font-weight:bold; cursor:pointer; }
+  button:hover { background:#30363d; }
+  button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+  button.primary:hover { background:#388bfd; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; }
+  .keybox-wrap { position:relative; margin-top:12px; }
+  .keybox { padding:14px 52px 14px 14px; background:var(--bg); border:1px dashed var(--green); border-radius:8px; color:var(--green);
+            font-size:17px; font-weight:bold; text-align:center; word-break:break-all; user-select:all; }
+  .copy-inline {
+    position:absolute; top:50%; right:8px; transform:translateY(-50%);
+    width:auto !important; padding:5px 9px !important; margin:0 !important;
+    background:var(--green); border:none; border-radius:5px;
+    color:#0d1117; font:bold 11px/1 Consolas,monospace; cursor:pointer;
+    transition:opacity .15s;
+  }
+  .copy-inline:hover { opacity:.8; background:var(--green) !important; }
+  .copy-inline.done  { background:var(--sky) !important; color:#fff; }
+  .msg { padding:12px; border-radius:8px; background:var(--bg); border:1px dashed var(--line); font-size:13px; }
+  .msg.err { border-color:var(--red); color:var(--red); }
+  .msg.warn { border-color:var(--amber); color:var(--amber); }
+  ol { margin:14px 0 0; padding-left:20px; color:var(--muted); font-size:13px; }
+  .spin { display:inline-block; width:14px; height:14px; margin-right:8px; vertical-align:-2px; border:2px solid var(--line);
+          border-top-color:var(--sky); border-radius:50%; animation:r .8s linear infinite; }
+  @keyframes r { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Lấy key miễn phí</h1>
+  <p class="sub">Vượt 1 link để nhận key dùng thử. Mỗi trình duyệt nhận 1 key mỗi 24 giờ.</p>
+  <div id="view"></div>
+</main>
+
+<script>
+// ⚠ Link /exec của Apps Script (giữ nguyên nếu đây là bản deploy của bạn)
+const API = 'https://script.google.com/macros/s/AKfycby3rZ7irKeSiCv-IqC3OuZXlC3JbGRPaq2Rb_6XSlomk9JFpHNCDEG_HmKOWgU40oEt/exec';
+
+const DEBUG = true;   // đặt false khi chạy ổn định để không lộ lỗi nội bộ cho khách
+
+const view = document.getElementById('view');
+const ERR = {
+  'wrong-device':    'Hãy vượt link trên cùng trình duyệt đã bấm "Lấy key" (đừng mở bằng máy/trình duyệt khác).',
+  'expired-session': 'Phiên đã hết hạn (quá 30 phút). Hãy bấm lấy key lại.',
+  'bad-token':       'Link không hợp lệ hoặc đã dùng. Hãy bấm lấy key lại.',
+  'shortener-fail':  'Không tạo được link vượt lúc này, thử lại sau ít phút.',
+  'busy':            'Hệ thống đang bận, thử lại sau vài giây.',
+  'bad-device':      'Trình duyệt không lưu được dữ liệu. Hãy tắt chế độ ẩn danh rồi thử lại.',
+  'server-error':    'Lỗi máy chủ, vui lòng báo admin.'
+};
+
+function deviceId() {
+  try {
+    let d = localStorage.getItem('gk_dev');
+    if (!d) { d = 'd' + crypto.randomUUID().replace(/-/g, ''); localStorage.setItem('gk_dev', d); }
+    return d;
+  } catch (e) { return 'tmp' + Math.random().toString(36).slice(2, 12); }
+}
+
+async function api(body) {
+  const r = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ deviceId: deviceId() }, body))
+  });
+  return r.json();
+}
+
+function el(tag, attrs, text) {
+  const e = document.createElement(tag);
+  Object.assign(e, attrs || {});
+  if (text != null) e.textContent = text;
+  return e;
+}
+function render(...nodes) { view.replaceChildren(...nodes); }
+function why(r, fb) { return (ERR[r.error] || fb + ' (' + r.error + ')') + (DEBUG && r.message ? ' — ' + r.message : ''); }
+function loading(t) { const d = el('div', { className: 'msg' }); d.append(el('span', { className: 'spin' }), t); render(d); }
+function error(t, retry) {
+  const nodes = [el('div', { className: 'msg err' }, '✖ ' + t)];
+  if (retry) { const b = el('button', { className: 'primary' }, 'Thử lại'); b.onclick = retry; nodes.push(b); }
+  render(...nodes);
+}
+
+function home() {
+  const b = el('button', { className: 'primary' }, 'Lấy key (vượt link)');
+  b.onclick = start;
+  render(b);
+}
+
+async function start() {
+  loading('Đang tạo link...');
+  try {
+    const r = await api({ action: 'gk_start' });
+    if (r.ok && r.already) return showKey(r.key, r.days, 'Bạn đã nhận key rồi. Có thể lấy key mới sau khoảng ' + Math.ceil(r.retryAfterMin / 60) + ' giờ nữa.');
+    if (r.ok && r.shortUrl) { loading('Đang chuyển tới link vượt...'); location.href = r.shortUrl; return; }
+    error(why(r, 'Không lấy được link'), home);
+  } catch (e) { error('Không kết nối được máy chủ.', home); }
+}
+
+async function claim(token) {
+  loading('Đang xác minh...');
+  try {
+    const r = await api({ action: 'gk_claim', token: token });
+    if (r.ok) { history.replaceState(null, '', location.pathname); return showKey(r.key, r.days); }
+    if (r.error === 'too-fast') return countdown(token, r.wait);
+    error(why(r, 'Không xác minh được'), home);
+  } catch (e) { error('Không kết nối được máy chủ.', () => claim(token)); }
+}
+
+function countdown(token, sec) {
+  const box = el('div', { className: 'msg warn' });
+  render(box);
+  const tick = () => {
+    if (sec <= 0) return claim(token);
+    box.textContent = '⏳ Bạn vượt link quá nhanh. Đang chờ xác minh... ' + sec + 's';
+    sec--; setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+async function copyKey(key, btn, doneText) {
+  try { await navigator.clipboard.writeText(key); }
+  catch (e) { try { const t = el('textarea', { value: key, style: 'position:fixed;opacity:0' }); document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); } catch (_) {} }
+  const orig = btn.textContent;
+  btn.textContent = doneText || '✔ Đã copy';
+  btn.classList.add('done');
+  setTimeout(() => { btn.textContent = orig; btn.classList.remove('done'); }, 2000);
+}
+
+function showKey(key, days, note) {
+  // keybox + nút copy nhỏ góc phải
+  const wrap    = el('div', { className: 'keybox-wrap' });
+  const keyboxEl = el('div', { className: 'keybox' }, key);
+  const cpInline = el('button', { className: 'copy-inline' }, '📋 Copy');
+  cpInline.onclick = (e) => { e.stopPropagation(); copyKey(key, cpInline, '✔ Copied'); };
+  wrap.append(keyboxEl, cpInline);
+
+  // hàng nút bên dưới — tạo div rồi append thủ công
+  const rowDiv = el('div', { className: 'row' });
+  const cpBtn  = el('button', { className: 'primary' }, '📋 Copy key');
+  cpBtn.onclick = () => copyKey(key, cpBtn, '✔ Đã copy!');
+  const dlBtn  = el('button', {}, '⬇ Tải key (.txt)');
+  dlBtn.onclick = () => {
+    const a = el('a', { href: URL.createObjectURL(new Blob([key + '\n'], { type: 'text/plain' })), download: 'key.txt' });
+    document.body.append(a); a.click(); a.remove();
+  };
+  rowDiv.append(cpBtn, dlBtn);
+
+  const steps = el('ol');
+  ['Mở extension → tab Activate', 'Dán key vào ô "key kích hoạt" rồi bấm Kích hoạt'].forEach(s => steps.append(el('li', {}, s)));
+
+  render(
+    note ? el('div', { className: 'msg warn' }, note) : el('div', { className: 'msg' }, '✔ Thành công! Key dùng được ' + days + ' ngày kể từ lúc kích hoạt.'),
+    wrap,
+    rowDiv,
+    steps
+  );
+}
+
+const token = new URLSearchParams(location.search).get('t');
+token ? claim(token) : home();
+</script>
+</body>
+</html>
